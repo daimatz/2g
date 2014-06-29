@@ -7,10 +7,14 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
+	"strings"
 
 	"code.google.com/p/go.text/encoding/japanese"
 	"code.google.com/p/go.text/transform"
 )
+
+var ImgUrlRegexp *regexp.Regexp = regexp.MustCompile("h?ttp://[0-9a-zA-Z/\\-.%]+?\\.(jpg|jpeg|gif|png)")
 
 func Dat(url string) {
 	resp, err := http.Get(url)
@@ -31,8 +35,12 @@ func Dat(url string) {
 			log.Fatalf("failed to read content. err: %v\n", err)
 			return
 		}
-		line := string(lineb)
-		fmt.Printf("line: %v\n", string(line))
+		line := strings.Split(string(lineb), "<>")
+		if len(line) >= 4 {
+			body := line[3]
+			matched := ImgUrlRegexp.FindAllString(body, -1)
+			fmt.Println(matched)
+		}
 	}
 }
 
