@@ -2,19 +2,23 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 
 	"code.google.com/p/go.text/encoding/japanese"
 	"code.google.com/p/go.text/transform"
 )
+
+var wg sync.WaitGroup
+
+const NumProc = 16
 
 // FIXME: brash up regexp
 var ImgUrlRegexp *regexp.Regexp = regexp.MustCompile("h?ttp://[0-9a-zA-Z/\\-.%]+?\\.(jpg|jpeg|gif|png)")
@@ -25,6 +29,8 @@ var Fetched = struct {
 }{m: make(map[string]bool)}
 
 func Img(url string) {
+	defer wg.Done()
+
 	Fetched.Lock()
 	if Fetched.m[url] {
 		Fetched.Unlock()
@@ -56,18 +62,21 @@ func Img(url string) {
 	log.Printf("saved %v (%v bytes)\n", url, n)
 }
 
-func ImgQueue(ch chan string, done chan bool) {
+func ImgQueue(ch chan string) {
 	for {
 		url, more := <-ch
 		if more && url != "" {
-			Img(url)
+			wg.Add(1)
+			go Img(url)
 		} else {
-			done <- true
+			break
 		}
 	}
 }
 
 func Dat(url string) {
+	defer wg.Done()
+
 	Fetched.Lock()
 	if Fetched.m[url] {
 		Fetched.Unlock()
@@ -84,9 +93,8 @@ func Dat(url string) {
 	}
 	defer resp.Body.Close()
 
-	imgCh := make(chan string)
-	done := make(chan bool)
-	go ImgQueue(imgCh, done)
+	imgCh := make(chan string, NumProc)
+	go ImgQueue(imgCh)
 
 	reader := transform.NewReader(resp.Body, japanese.ShiftJIS.NewDecoder())
 	bufr := bufio.NewReader(reader)
@@ -109,23 +117,27 @@ func Dat(url string) {
 		}
 	}
 	close(imgCh)
-
-	<-done
 }
 
 func DatQueue(ch chan string, done chan bool) {
 	for {
 		url, more := <-ch
 		if more && url != "" {
-			Dat(url)
+			wg.Add(1)
+			go Dat(url)
 		} else {
-			done <- true
+			break
 		}
 	}
+
+	wg.Wait()
+	done <- true
 }
 
 func main() {
-	datCh := make(chan string)
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
+	datCh := make(chan string, NumProc)
 	done := make(chan bool)
 
 	go DatQueue(datCh, done)
@@ -147,6 +159,4 @@ func main() {
 	close(datCh)
 
 	<-done
-
-	fmt.Println("OK")
 }
