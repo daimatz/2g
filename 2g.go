@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"code.google.com/p/go.text/encoding/japanese"
 	"code.google.com/p/go.text/transform"
@@ -18,7 +19,19 @@ import (
 // FIXME: brash up regexp
 var ImgUrlRegexp *regexp.Regexp = regexp.MustCompile("h?ttp://[0-9a-zA-Z/\\-.%]+?\\.(jpg|jpeg|gif|png)")
 
+var Fetched = struct {
+	sync.RWMutex
+	m map[string]bool
+}{m: make(map[string]bool)}
+
 func Img(url string) {
+	Fetched.Lock()
+	if Fetched.m[url] {
+		Fetched.Unlock()
+		return
+	}
+	Fetched.m[url] = true
+	Fetched.Unlock()
 	log.Printf("downloading %v...\n", url)
 
 	out, err := os.Create(filepath.Base(url))
@@ -55,6 +68,13 @@ func ImgQueue(ch chan string, done chan bool) {
 }
 
 func Dat(url string) {
+	Fetched.Lock()
+	if Fetched.m[url] {
+		Fetched.Unlock()
+		return
+	}
+	Fetched.m[url] = true
+	Fetched.Unlock()
 	log.Printf("reading %v...\n", url)
 
 	resp, err := http.Get(url)
